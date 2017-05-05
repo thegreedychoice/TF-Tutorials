@@ -126,5 +126,6 @@ if TRAIN_METHOD == 3 :
 	# evaluate our model
 	print(estimator.evaluate(input_fn=input_fn, steps=10))
 
+	
 	print("Training by creating a Custom Model Ended!")
 
