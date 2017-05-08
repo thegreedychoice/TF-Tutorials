@@ -159,15 +159,15 @@ def train_model():
 
 
 def main(_):
-	print "1"
 	if tf.gfile.Exists(FLAGS.log_dir):
-		print "2"
+		print "MNIST Directory Overwritten!"
 		tf.gfile.DeleteRecursively(FLAGS.log_dir)
   		tf.gfile.MakeDirs(FLAGS.log_dir)
   		train_model()
   	else:
-  		print "3"
+  		print "MNIST Directory Created!"
    		tf.gfile.MakeDirs(FLAGS.log_dir)
+        train_model()
 
 
 
@@ -206,13 +206,13 @@ if __name__ == '__main__':
 	  parser.add_argument(
 	      '--input_data_dir',
 	      type=str,
-	      default='/tmp/tensorflow/mnist/input_data',
+	      default=os.path.dirname(os.path.abspath(__file__))+'/tmp/mnist/input_data',
 	      help='Directory to put the input data.'
 	  )
 	  parser.add_argument(
 	      '--log_dir',
 	      type=str,
-	      default='/tmp/tensorflow/mnist/logs/fully_connected_feed',
+	      default=os.path.dirname(os.path.abspath(__file__))+'/tmp/mnist/logs/fully_connected_feed',
 	      help='Directory to put the log data.'
 	  )
 	  parser.add_argument(
