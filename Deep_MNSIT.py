@@ -148,7 +148,8 @@ if MODEL_TYPE == 2:
 
 	#Dropout Layer
 	#To reduce Overfitting, we create this layer
-	#There is parobability assigned which represents the probability of keeping the output for a neuron during training.
+	#There is probability assigned which represents the probability of keeping the 
+	#output for a neuron during training.
 
 	keep_prob = tf.placeholder(tf.float32)
 	o_drop1 = tf.nn.dropout(o_fcn1, keep_prob)
@@ -179,7 +180,7 @@ if MODEL_TYPE == 2:
 	epochs = 20000
 	for i in range(epochs):
 		batch = mnist.train.next_batch(50)
-		if i%100:
+		if i%100 == 0:
 			train_accuracy = accuracy.eval(feed_dict={x: batch[0], y: batch[1], keep_prob: 1.0})
 			print("Epoch No : %d   Training Accuracy : %g"%(i, train_accuracy))
 		train_step.run(feed_dict={x: batch[0], y: batch[1], keep_prob: 0.5})
