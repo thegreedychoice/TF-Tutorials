@@ -64,8 +64,8 @@ n_hidden = 128 # hidden layer num of features
 n_classes = 10 # MNIST total classes (0-9 digits)
 
 
-learning_rate = 0.001
-training_iters = 1
+eta = 0.001
+training_iters = 100000
 batch_size = 100
 display_step = 10
 
@@ -105,7 +105,7 @@ def RNN(x, weights, biases):
 
     # Get lstm cell output
     # outputs will hold the outputs/hidden states at each time step from 0 to 27 for each sample
-    # The shape of outputs is (batch_size, n_inputs, n_timesteps)
+    # The shape of outputs is (batch_size, n_inputs, n_hidden)
     outputs, states = tf.nn.dynamic_rnn(lstm_cell, inputs=x, dtype=tf.float32)
 
     # Get lstm cell output
@@ -123,7 +123,62 @@ def RNN(x, weights, biases):
 
 
 
-    
+with tf.variable_scope('forward-pass'):
+    preds = RNN(x, weights, biases)
+
+#define the cross entropy loss function
+loss_fn = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y, logits=preds))
+#define the optimizer
+optimizer = tf.train.AdamOptimizer(learning_rate=eta).minimize(loss_fn)
+
+
+#calculate the number of correct predictions
+correct_preds = tf.equal(tf.argmax(preds, 1), tf.argmax(y, 1))
+#calculate the average/mean accuracy
+accuracy = tf.reduce_mean(tf.cast(correct_preds, tf.float32))
+
+
+#Create a handler to intialize all the variables
+init = tf.global_variables_initializer()
+
+#Train the network
+with tf.Session() as sess:
+    sess.run(init)
+    step = 1
+
+    #Keep training until max iterations is reached
+    while (step*batch_size) < training_iters:
+        #batch_x : (100, 784)   batch_y : (100, 10)
+        batch_x, batch_y = mnist.train.next_batch(batch_size)
+
+        #Reshape into (100,28,28) where for each sample we have 28 sequences of 28 length inputs
+        batch_x = batch_x.reshape((batch_size, n_steps, n_input))
+
+        sess.run(optimizer, feed_dict={x: batch_x, y: batch_y})
+
+        if step % display_step == 0:
+            #calculate batch accuracy 
+            acc = sess.run(accuracy, feed_dict={x:batch_x, y:batch_y})
+            #calculate the loss
+            loss = sess.run(loss_fn, feed_dict={x:batch_x, y:batch_y})
+
+            print("Iter " + str(step*batch_size) + ", Minibatch Loss= " + \
+                  "{:.6f}".format(loss) + ", Training Accuracy= " + \
+                  "{:.5f}".format(acc))
+        step += 1
+
+    print "Optimization Completed!"
+
+    #Calculate accuracy for 1000 mnist images
+    test_len = 1000
+    test_x = mnist.test.images[:test_len].reshape((-1, n_steps, n_input))
+    test_y = mnist.test.labels[:test_len]
+    print ("Testing Accuracy : " + "{:.6f}".format(sess.run(accuracy, feed_dict={x: test_x, y:test_y})))
+
+
+
+
+
     
 
 
