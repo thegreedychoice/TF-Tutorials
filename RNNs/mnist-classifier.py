@@ -104,7 +104,7 @@ def RNN(x, weights, biases):
    
 
     # Get lstm cell output
-    # outputs will hold the outputs/hidden states at each time step from 0 to 27 for each sample
+    # outputs will hold the outputs/hidden states at each time step from 1 to 28 for each sample
     # The shape of outputs is (batch_size, n_inputs, n_hidden)
     outputs, states = tf.nn.dynamic_rnn(lstm_cell, inputs=x, dtype=tf.float32)
 
