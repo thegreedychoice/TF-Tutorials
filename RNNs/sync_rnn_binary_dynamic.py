@@ -88,38 +88,23 @@ init_state = tf.zeros([batch_size, state_size])
 #rnn_inputs is a list of num_steps(5) tensors 
 #each tensor is of shape (200, 2) <--> (batch_size, num_classes)
 #shape of rnn_inputs is (5, 200, 2)
-x_one_hot = tf.one_hot(x, num_classes)
-rnn_inputs = tf.unstack(x_one_hot, axis=1)
-
-"""
-Definition of rnn_cell
-This is very similar to the way the __call__method of the tensorflow's
-BasicRNNCell
-"""
-
-with tf.variable_scope('rnn_cell'):
-    W = tf.get_variable('W', [num_classes + state_size, state_size])
-    b = tf.get_variable('b', [state_size], initializer=tf.constant_initializer(0.0))
-
-def rnn_cell(rnn_input, state):
-    with tf.variable_scope('rnn_cell', reuse=True):
-        W = tf.get_variable('W', [num_classes + state_size, state_size])
-        b = tf.get_variable('b', [state_size], initializer=tf.constant_initializer(0.0))
-    return tf.tanh(tf.matmul(tf.concat([rnn_input, state], 1), W) + b)
+rnn_inputs = tf.one_hot(x, num_classes)
 
 
-#Adding rnn_cells to the graph
-#This is a simplified version of the "static_rnn" tensorflow function
-state = init_state
-rnn_outputs = []
-for rnn_input in rnn_inputs:
-	#shape of rnn_input : (200, 2) <--> (batch_size, num_classes)
-	state = rnn_cell(rnn_input, state)
-	#state is the output/hidden state of the RNN of shape (200,5)
-	rnn_outputs.append(state)
+#RNN
+#We use Tensor flow API's to first create a single RNN Cell(like ANN) using BasicRNNCell()
+#and then unroll it using another API called dynamic_rnn()
+#In dynamic RNN, we can add nodes to the graph dynamically during execution and not 
+#necessarily in advance
+#Tensorflow creates the graph dynamically during the execution time.
+#But for dynamic_rnn(), the input format has to change from list of 2-D Tensors in static
+#of length num_steps, each of shape [batch_size, n_features] to 3-D tensors
+#of shape [batch_size, num_steps, n_features]
+#Dynamic RNN is more efficient than the static RNN
 
-#final_state of the unrolled RNN Layer
-final_state = rnn_outputs[-1] 
+cell = tf.contrib.rnn.BasicRNNCell(state_size)
+rnn_outputs, final_state = tf.nn.dynamic_rnn(cell, rnn_inputs, 
+	initial_state=init_state)
 
 
 
@@ -130,10 +115,86 @@ final_state = rnn_outputs[-1]
 with tf.variable_scope('softmax'):
 	W = tf.get_variable('W', [state_size, num_classes])
 	b = tf.get_variable('b', [num_classes], initializer=tf.constant_initializer(0.0))
-logits = [tf.matmul(rnn_output, W) + b for rnn_output in rnn_outputs]
+
+
+
+logits = tf.reshape(
+            tf.matmul(tf.reshape(rnn_outputs, [-1, state_size]), W) + b,
+            [batch_size, num_steps, num_classes])
 #shape of logits (5, 200, 2)
 
-predictions = [tf.nn.softmax(logit) for logit in logits]
+predictions = tf.nn.softmax(logits)
+
+
+
+#losses and train steps
+losses = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y, logits=logits)
+total_loss = tf.reduce_mean(losses)
+train_step = tf.train.AdagradOptimizer(eta).minimize(total_loss)
+
+
+#Now train the network
+
+def train_network(num_epochs, num_steps, state_size=state_size, verbose=True):
+	with tf.Session() as sess:
+		sess.run(tf.global_variables_initializer())
+		training_losses = []
+		for idx, epoch in enumerate(gen_epochs(num_epochs, num_steps)):
+			training_loss = 0
+			training_state = np.zeros((batch_size, state_size))
+
+			if verbose:
+				print("\nEpoch", idx)
+			for step, (X,Y) in enumerate(epoch):
+				tr_losses, training_loss_, training_state, _ = \
+				sess.run([losses, total_loss, final_state, train_step],
+				 feed_dict={x:X, y:Y, init_state:training_state})
+				training_loss += training_loss_
+				if step % 100 == 0 and step > 0:
+					if verbose:
+						print("Average Loss at step", step, 
+							"for last 250 steps:", training_loss/100)
+						training_losses.append(training_loss/100)
+						training_loss = 0
+
+	return training_losses
+
+
+
+training_losses = train_network(1, num_steps)
+"""
+('Average Loss at step', 100, 'for last 250 steps:', 0.65592942237854002)
+('Average Loss at step', 200, 'for last 250 steps:', 0.59760178387165075)
+('Average Loss at step', 300, 'for last 250 steps:', 0.52569946497678754)
+('Average Loss at step', 400, 'for last 250 steps:', 0.52180744349956509)
+('Average Loss at step', 500, 'for last 250 steps:', 0.52026346832513815)
+('Average Loss at step', 600, 'for last 250 steps:', 0.52193202465772626)
+('Average Loss at step', 700, 'for last 250 steps:', 0.51931032478809358)
+('Average Loss at step', 800, 'for last 250 steps:', 0.51976298689842226)
+('Average Loss at step', 900, 'for last 250 steps:', 0.52000363707542419)
+"""
+plt.plot(training_losses)
+plt.show()
+
+
+"""
+the network very quickly learns to capture the first dependency 
+(but not the second), and converges to the expected cross-entropy loss of 0.52.
+If we change hyperparameter where the num_steps=10; state_size=16: epochs = 10,
+the network will learn the second dependency
+as well and the cross entropy loss will come down to 0.45
+"""
+
+
+
+
+
+
+
+
+
+
+
 
 
 
