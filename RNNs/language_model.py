@@ -129,7 +129,7 @@ feed_dict = {x:_x, y:_y}
 sess.run(x, feed_dict)
 
 #Create the 2-layer stacked LSTM network
-#lstm_cell = tf.contrib.rnn.BasicLSTMCell(hidden_size, forget_bias=0.0)
+lstm_cell = tf.contrib.rnn.BasicLSTMCell(hidden_size, forget_bias=0.0)
 #lstm_cells = []
 #for _ in range(num_layers):
 #	lstm_cells.append(tf.contrib.rnn.LSTMCell(hidden_size))
