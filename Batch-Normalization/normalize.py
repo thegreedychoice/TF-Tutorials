@@ -116,7 +116,7 @@ accuracy_BN = tf.reduce_mean(tf.cast(correct_predictions_BN, tf.float32)) * 100
 
 z2s, z2_BNs, accs, acc_BNs = [], [], [], []
 
-num_epochs = 40000
+num_epochs = 400
 batch_size = 60
 sess = tf.InteractiveSession()
 sess.run(tf.global_variables_initializer())
@@ -167,7 +167,7 @@ for i, ax in enumerate(axes):
 	ax[0].plot(z2s[:,i])
 	ax[1].plot(z2_BNs[:,i])
 
-plt.show()
+#plt.show()
 
 #Making predictions with the model using the mean batch and avariance to normalize inputs to activations
 #Using a single example to test at a time, will lead us to the same output everytime since the 
@@ -175,9 +175,34 @@ plt.show()
 predictions = []
 correct = 0
 
+with tf.Session() as sess:
+	#sess.run(tf.global_variables_initializer())
+	#saver.restore(sess, './temp-bn-save')
+
+	#Find the predictions and accuracy for the 100 examples
+	for i in range(100):
+		_x = np.asarray([mnist.test.images[i]])
+		_y = np.asarray([mnist.test.labels[i]])
+		
+		pred, corr = sess.run([tf.arg_max(y_BN, 1), accuracy_BN],
+			feed_dict={x: _x, y_: _y})
+		acc += corr
+		predictions.append(pred[0])
+
+print("Predictions : ", predictions)
+print ("Accuracy : (%)", acc)
+
+
+
+
 for i in range(100):
-	pred, corr = sess.run([tf.arg_max(y_BN, 1), accuracy_BN], 
-		feed_dict={x: mnist.test.images[i], y_: mnist.test.labels[i]})
+	_x = [mnist.test.images[i]]
+	_y = [mnist.test.labels[i]]
+	pred, corr = sess.run([tf.arg_max(y_BN, 1), accuracy_BN],
+		feed_dict={x: _x, y_: _y})
+
+	pred1, corr1 = sess.run([tf.arg_max(y_BN, 1), accuracy_BN], 
+		feed_dict={x: _x, y_: _y})
 	correct += corr
 	predictions.append(pred[0])
 
