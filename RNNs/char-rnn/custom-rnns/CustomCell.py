@@ -1,5 +1,6 @@
 import tensorflow as tf 
 import time
+import numpy as np
 import matplotlib.pyplot as plt 
 import os
 import urllib2
@@ -147,6 +148,7 @@ def train_network(g, num_epochs, num_steps = 200, batch_size = 32, verbose = Tru
 
 		if isinstance(save, str):
 			g['saver'].save(sess, save)
+			print "The graph was saved!"
 
 	return training_losses
 
@@ -236,18 +238,239 @@ def build_multilayer_graph_with_custom_cell(
 
 
 
-
+"""
 g = build_multilayer_graph_with_custom_cell(cell_type='GRU', num_steps=30)
 s = time.time()
 train_network(g, 5, num_steps=30)
 e = time.time()
 print("It took ", e-s, "seconds to train for ", 5, " epochs")
+"""
+
+
+def ln(tensor, scope=None, epsilon = 1e-5):
+	""" Layer normalizes 2-D tensor along its 2nd dimension"""
+	assert(len(tensor.get_shape()) == 2)
+	mean, var = tf.nn.moments(tensor, axes=[1], keep_dims=True)
+	if not isinstance(scope, str):
+		scope = ''
+	with tf.variable_scope(scope+'layer_norm'):
+		scale = tf.get_variable('scale',
+		 shape=[tensor.get.shape()[1]], 
+		 initializer=tf.constant_initializer(1))
+		shift = tf.get_variable('shift', 
+		shape=[tensor.get_shape()[1]], 
+		initializer=tf.constant_initializer(0))
+	LN_initial = (tensor - mean) /tf.sqrt(var + epsilon)
+	LN_final = scale * LN_initial + shift
+
+	return LN_final
+
+
+class LayerNormalizedLSTMCell(tf.contrib.rnn.RNNCell):
+	"""
+	Adapted from tensorflow's version of BasicLSTMCell with Layer Normalization.
+	We add layer normalization to the output of each gate of the LSTM Cell
+	"""
+
+	def __init__(self, num_units, forget_bias=1.0, activation=tf.nn.tanh):
+		#num of hidden neurons
+		self._num_units = num_units
+		self._forget_bias = forget_bias
+		self._activation = activation
+
+	@property
+	def state_size(self):
+		return tf.contrib.rnn.LSTMStateTuple(self._num_units, self._num_units)
+
+	@property
+	def output_size(self):
+		return self._num_units
+
+	def __call__(self, inputs, state, scope=None):
+		"""
+		The implementation of the basic LSTM Cell with layer normalization
+		"""
+		with tf.variable_scope(scope or type(self).__name__):
+			c, h = state
+
+			#change bias argument to False since LN will add bias via shift
+			concat = tf.contrib.rnn_cell._linear([inputs, h], 4 * self._num_units, False)
+
+			i, j, f, o = tf.split(concat, 4, axis=1)
+
+			#add normalization to each gate
+			i = ln(i, scope='i/')
+			j = ln(j, scope='j/')
+			f = ln(f, scope='f/')
+			o = ln(o, scope='o/')
+
+			new_c = (c * tf.nn.sigmoid(f + self._forget_bias) + tf.nn.sigmoid(i) * self._activation(j))
+
+			#add layer normalization to the new hidden state
+			new_h = self._activation(ln(new_c, scope='new_h/')) * tf.nn.sigmoid(o)
+			new_state = tf.contrib.rnn.LSTMStateTuple(new_c, new_h)
+
+			return new_h, new_state
 
 
 
 
+def build_graph_with_custom_cell(
+	cell_type = None,
+	num_weights_for_custom_cell = 5, 
+	state_size = 100,
+	num_classes = vocab_size, 
+	batch_size = 32,
+	num_steps = 200,
+	num_layers = 3,
+	build_with_dropout=True,
+	eta = 1e-4):
+	
+	reset_graph()
+
+	x = tf.placeholder(tf.int32, [batch_size, num_steps], name="input_placeholder")
+	y = tf.placeholder(tf.int32, [batch_size, num_steps], name="labels_placeholder")
+
+	dropout = tf.constant(1.0)
+
+	embeddings = tf.get_variable("embedding_matrix", [num_classes, state_size])
+
+	rnn_inputs = tf.nn.embedding_lookup(embeddings, x)
+
+	def lstm_cell(hidden_size):
+		return tf.contrib.rnn.BasicLSTMCell(hidden_size, state_is_tuple=True)
+
+	def gru_cell(hidden_size):
+		return tf.contrib.rnn.GRUCell(hidden_size)
+
+	if build_with_dropout == False:
+		if cell_type == 'Custom':
+			cell = tf.contrib.rnn.MultiRNNCell([CustomCell(state_size, num_weights_for_custom_cell) for _ in range(num_layers)]) 
+		elif cell_type == 'LSTM':
+			cell = tf.contrib.rnn.MultiRNNCell([lstm_cell(state_size) for _ in range(num_layers)])
+		elif cell_type == 'GRU':
+			cell = tf.contrib.rnn.MultiRNNCell([gru_cell(state_size) for _ in range(num_layers)])
+		elif cell_type == 'LN_LSTM':
+			cell = tf.contrib.rnn.MultiRNNCell([LayerNormalizedLSTMCell(state_size) for _ in range(num_layers)])
+		else:
+			cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicRNNCell(state_size) for _ in range(num_layers)])
+
+	else:
+
+		if cell_type == 'Custom':
+			cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(
+				CustomCell(state_size, num_weights_for_custom_cell), input_keep_prob=dropout)
+				 for _ in range(num_layers)]) 
+		elif cell_type == 'LSTM':
+			cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(
+				lstm_cell(state_size), input_keep_prob=dropout)
+				 for _ in range(num_layers)])
+		elif cell_type == 'GRU':
+			cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(
+				gru_cell(state_size), input_keep_prob=dropout)
+				 for _ in range(num_layers)])
+		elif cell_type == 'LN_LSTM':
+			cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(
+				LayerNormalizedLSTMCell(state_size), input_keep_prob=dropout)
+				 for _ in range(num_layers)])
+		else:
+			cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(
+				tf.contrib.rnn.BasicRNNCell(state_size), input_keep_prob=dropout)
+				 for _ in range(num_layers)])
+
+		cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=dropout)
 
 
+
+	init_state = cell.zero_state(batch_size, tf.float32)
+	rnn_outputs, final_state = tf.nn.dynamic_rnn(cell, rnn_inputs, initial_state=init_state)
+
+	with tf.variable_scope("softmax"):
+		W = tf.get_variable('W', [state_size, num_classes])
+		b = tf.get_variable('b', [num_classes], initializer=tf.constant_initializer(0.0))
+
+	rnn_outputs = tf.reshape(rnn_outputs, [-1, state_size])
+	y_reshaped = tf.reshape(y, [-1])
+
+	logits = tf.matmul(rnn_outputs, W) + b
+	predictions = tf.nn.softmax(logits)
+	total_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=y_reshaped))
+	train_step = tf.train.AdamOptimizer(eta).minimize(total_loss)
+
+	return dict(
+		x = x,
+		y = y,
+		init_state = init_state, 
+		final_state = final_state,
+		total_loss = total_loss, 
+		train_step = train_step,
+		preds = predictions,
+		saver = tf.train.Saver()
+		)
+
+
+
+g = build_graph_with_custom_cell(cell_type='GRU', num_steps=80)
+s = time.time()
+losses = train_network(g, num_epochs=1, num_steps=80, save="saves/GRU_20_epochs")
+e = time.time()
+print("It took ", e-s, "seconds to train for ", 5, " epochs")
+print("The average loss on the final epoch was : ", losses[-1])
+
+
+"""
+Now lets generate characters using these RNN models we have defined
+"""
+
+def gen_characters(g, checkpoint, num_chars, prompt='A', pick_top_chars=None):
+	"""
+	Accepts the current character and a checkpoint to restore from
+	"""
+
+	with tf.Session() as sess:
+		sess.run(tf.initialize_all_variables())
+		g['saver'].restore(sess, checkpoint)
+
+	state = None
+	current_char = char_to_idx[prompt]
+	chars = [current_char]
+	for i in range(num_chars):
+		#prepare the feed_dictionary
+		if state is not None:
+			feed_dict = {g['x']:[[current_char]], g['init_state']:state}
+		else:
+			feed_dict = {g['x']:[[current_char]]}
+
+		#find the predictions distribution for the next char
+		preds, state = sess.run([g['preds'], g['final_state']], feed_dict)
+		#Preds holds the probability distribution of the next character
+
+		if pick_top_chars is not None:
+			p = np.squeeze(preds)
+			p[np.argsort(p)[:-pick_top_chars]] = 0
+			#Normalize the probabilities for the top picks
+			p = p/np.sum(p)
+			#randomly choose one of the character from the picked ones
+			current_char = np.random.choice(vocab_size, 1, p=p)[0]
+		else:
+			current_char = np.random.choice(vocab_size, 1, p=np.squeeze(preds))[0]
+
+		chars.append(current_char)
+
+	#convert these character indexes to characters
+
+	chars = map(lambda x:idx_to_char[x], chars)
+
+	print "".join(chars)
+
+	return "".join(chars)
+
+
+
+
+g = build_graph_with_custom_cell(cell_type='GRU', num_steps=1, batch_size=1)
+
+gen_characters(g, "saves/GRU_20_epochs", 750, prompt='A', pick_top_chars=5)
 
 
 
